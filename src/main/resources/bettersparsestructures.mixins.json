@@ -4,8 +4,12 @@
   "package": "net.z2six.bettersparsestructures.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "ChunkGeneratorMixin",
+    "StructureManagerAccessor",
+    "WorldGenRegionAccessor"
   ],
   "client": [
+    "DebugRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -25,12 +25,16 @@ public final class GlobalStructureSpacingService {
 
         if (whitelisted) {
             accepted = true;
+            if (ServerConfig.countWhitelistedStructuresForSpacing()) {
+                GlobalStructureIndexSavedData.get(serverLevel)
+                        .rememberWhitelistedStructure(structureStart.getChunkPos(), structureId);
+            }
         } else {
             accepted = GlobalStructureIndexSavedData.get(serverLevel)
                     .tryAccept(structureStart.getChunkPos(), structureId, rules);
         }
 
-        if (ServerConfig.sendDebugStructureMarkers()) {
+        if (ServerConfig.logStructureAttempts()) {
             Bettersparsestructures.LOGGER.info(
                     "{} structure attempt {} at chunk [{}, {}] in {}",
                     whitelisted ? "Whitelisted" : accepted ? "Accepted" : "Rejected",
@@ -39,6 +43,9 @@ public final class GlobalStructureSpacingService {
                     structureStart.getChunkPos().z,
                     serverLevel.dimension().location()
             );
+        }
+
+        if (ServerConfig.sendDebugStructureMarkers()) {
             DebugStructureMarkerService.recordMarker(serverLevel, structureStart.getChunkPos(), structureId, accepted);
         }
 

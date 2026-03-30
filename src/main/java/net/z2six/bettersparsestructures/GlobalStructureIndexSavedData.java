@@ -1,5 +1,6 @@
 package net.z2six.bettersparsestructures;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.HolderLookup;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 public final class GlobalStructureIndexSavedData extends SavedData {
+    private static final int CELL_SIZE_CHUNKS = 32;
     private static final String DATA_NAME = Bettersparsestructures.MODID + "_global_structure_index";
     private static final String LEGACY_POSITIONS_TAG = "accepted_structure_chunks";
     private static final String STRUCTURES_TAG = "accepted_structures";
@@ -28,6 +30,7 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     );
 
     private final Long2ObjectOpenHashMap<String> acceptedStructures = new Long2ObjectOpenHashMap<>();
+    private final Long2ObjectOpenHashMap<LongArrayList> acceptedStructuresByCell = new Long2ObjectOpenHashMap<>();
 
     private GlobalStructureIndexSavedData() {
     }
@@ -40,11 +43,11 @@ public final class GlobalStructureIndexSavedData extends SavedData {
                 CompoundTag entry = entries.getCompound(index);
                 long chunk = entry.getLong(CHUNK_TAG);
                 String structureId = entry.getString(STRUCTURE_ID_TAG);
-                data.acceptedStructures.put(chunk, structureId.isBlank() ? LEGACY_UNKNOWN_STRUCTURE_ID : structureId);
+                data.addAcceptedStructure(chunk, structureId.isBlank() ? LEGACY_UNKNOWN_STRUCTURE_ID : structureId);
             }
         } else {
             for (long chunk : tag.getLongArray(LEGACY_POSITIONS_TAG)) {
-                data.acceptedStructures.put(chunk, LEGACY_UNKNOWN_STRUCTURE_ID);
+                data.addAcceptedStructure(chunk, LEGACY_UNKNOWN_STRUCTURE_ID);
             }
         }
         return data;
@@ -63,33 +66,65 @@ public final class GlobalStructureIndexSavedData extends SavedData {
 
     public synchronized boolean tryAccept(ChunkPos candidateChunk, String candidateStructureId, StructureRuleSet rules) {
         int candidateRadius = rules.spacingRadiusChunks(candidateStructureId);
+        int candidateCellX = cellCoordinate(candidateChunk.x);
+        int candidateCellZ = cellCoordinate(candidateChunk.z);
+        int cellRange = Math.max(0, Math.floorDiv(rules.maxSpacingRadiusChunks() + CELL_SIZE_CHUNKS - 1, CELL_SIZE_CHUNKS));
 
-        for (Long2ObjectMap.Entry<String> entry : this.acceptedStructures.long2ObjectEntrySet()) {
-            String existingStructureId = entry.getValue();
-            if (rules.isWhitelisted(existingStructureId)) {
-                continue;
-            }
+        for (int cellX = candidateCellX - cellRange; cellX <= candidateCellX + cellRange; cellX++) {
+            for (int cellZ = candidateCellZ - cellRange; cellZ <= candidateCellZ + cellRange; cellZ++) {
+                LongArrayList indexedChunks = this.acceptedStructuresByCell.get(cellKey(cellX, cellZ));
+                if (indexedChunks == null) {
+                    continue;
+                }
 
-            int existingRadius = rules.spacingRadiusChunks(existingStructureId);
-            int requiredRadius = Math.max(candidateRadius, existingRadius);
-            long radiusSquared = (long) requiredRadius * requiredRadius;
-            long existingChunk = entry.getLongKey();
-            long deltaX = (long) ChunkPos.getX(existingChunk) - candidateChunk.x;
-            long deltaZ = (long) ChunkPos.getZ(existingChunk) - candidateChunk.z;
-            long distanceSquared = deltaX * deltaX + deltaZ * deltaZ;
+                for (int index = 0; index < indexedChunks.size(); index++) {
+                    long existingChunk = indexedChunks.getLong(index);
+                    String existingStructureId = this.acceptedStructures.get(existingChunk);
+                    if (existingStructureId == null) {
+                        continue;
+                    }
 
-            if (distanceSquared <= radiusSquared) {
-                return false;
+                    if (rules.isWhitelisted(existingStructureId) && !ServerConfig.countWhitelistedStructuresForSpacing()) {
+                        continue;
+                    }
+
+                    int existingRadius = rules.spacingRadiusChunks(existingStructureId);
+                    int requiredRadius = Math.max(candidateRadius, existingRadius);
+                    long radiusSquared = (long) requiredRadius * requiredRadius;
+                    long deltaX = (long) ChunkPos.getX(existingChunk) - candidateChunk.x;
+                    long deltaZ = (long) ChunkPos.getZ(existingChunk) - candidateChunk.z;
+                    long distanceSquared = deltaX * deltaX + deltaZ * deltaZ;
+
+                    if (distanceSquared <= radiusSquared) {
+                        return false;
+                    }
+                }
             }
         }
 
         long candidateChunkKey = candidateChunk.toLong();
-        String previousStructureId = this.acceptedStructures.put(candidateChunkKey, candidateStructureId);
+        String previousStructureId = this.acceptedStructures.get(candidateChunkKey);
+        if (candidateStructureId.equals(previousStructureId)) {
+            return true;
+        }
+
+        addAcceptedStructure(candidateChunkKey, candidateStructureId);
         if (!candidateStructureId.equals(previousStructureId)) {
             this.setDirty();
         }
 
         return true;
+    }
+
+    public synchronized void rememberWhitelistedStructure(ChunkPos chunkPos, String structureId) {
+        long chunkKey = chunkPos.toLong();
+        String previousStructureId = this.acceptedStructures.get(chunkKey);
+        if (structureId.equals(previousStructureId)) {
+            return;
+        }
+
+        addAcceptedStructure(chunkKey, structureId);
+        this.setDirty();
     }
 
     @Override
@@ -103,5 +138,23 @@ public final class GlobalStructureIndexSavedData extends SavedData {
         }
         tag.put(STRUCTURES_TAG, entries);
         return tag;
+    }
+
+    private void addAcceptedStructure(long chunkKey, String structureId) {
+        String previousStructureId = this.acceptedStructures.put(chunkKey, structureId);
+        if (previousStructureId != null) {
+            return;
+        }
+
+        long cellKey = cellKey(cellCoordinate(ChunkPos.getX(chunkKey)), cellCoordinate(ChunkPos.getZ(chunkKey)));
+        this.acceptedStructuresByCell.computeIfAbsent(cellKey, ignored -> new LongArrayList()).add(chunkKey);
+    }
+
+    private static int cellCoordinate(int chunkCoordinate) {
+        return Math.floorDiv(chunkCoordinate, CELL_SIZE_CHUNKS);
+    }
+
+    private static long cellKey(int cellX, int cellZ) {
+        return ChunkPos.asLong(cellX, cellZ);
     }
 }

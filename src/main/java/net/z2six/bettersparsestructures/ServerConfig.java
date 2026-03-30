@@ -17,13 +17,18 @@ public final class ServerConfig {
     private static final ModConfigSpec.ConfigValue<List<? extends String>> WHITELISTED_STRUCTURES = BUILDER
             .comment(
                     "Structure ids or wildcard patterns that should bypass Better Sparse Structures entirely.",
-                    "Whitelisted structures are never blocked by this mod and do not block other structures either.",
+                    "Whitelisted structures are never blocked by this mod.",
+                    "Whether they also count as blockers for other structures is controlled by countWhitelistedStructuresForSpacing.",
                     "Examples:",
                     "  \"minecraft:*\"",
                     "  \"minecraft:pillager_outpost\"",
                     "  \"mystructures:ancient_*\""
             )
             .defineListAllowEmpty("whitelistedStructures", List.of(), ServerConfig::isStringEntry);
+
+    private static final ModConfigSpec.BooleanValue COUNT_WHITELISTED_STRUCTURES_FOR_SPACING = BUILDER
+            .comment("If true, whitelisted structures are still remembered as nearby blockers for other structures. They are still never blocked themselves.")
+            .define("countWhitelistedStructuresForSpacing", true);
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> SPACING_RADIUS_OVERRIDES = BUILDER
             .comment(
@@ -40,10 +45,15 @@ public final class ServerConfig {
             .comment("Sends server-side structure attempt debug markers to modded clients that support them.")
             .define("sendDebugStructureMarkers", false);
 
+    private static final ModConfigSpec.BooleanValue LOG_STRUCTURE_ATTEMPTS = BUILDER
+            .comment("Logs accepted, rejected, and whitelisted structure attempts at INFO level.")
+            .define("logStructureAttempts", true);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     private static volatile StructureRuleSet structureRules = StructureRuleSet.empty(50);
     private static volatile boolean sendDebugStructureMarkers;
+    private static volatile boolean logStructureAttempts = true;
 
     private ServerConfig() {
     }
@@ -52,8 +62,16 @@ public final class ServerConfig {
         return structureRules;
     }
 
+    public static boolean countWhitelistedStructuresForSpacing() {
+        return COUNT_WHITELISTED_STRUCTURES_FOR_SPACING.get();
+    }
+
     public static boolean sendDebugStructureMarkers() {
         return sendDebugStructureMarkers;
+    }
+
+    public static boolean logStructureAttempts() {
+        return logStructureAttempts;
     }
 
     public static void onConfigLoading(ModConfigEvent.Loading event) {
@@ -76,13 +94,16 @@ public final class ServerConfig {
                 SPACING_RADIUS_OVERRIDES.get()
         );
         sendDebugStructureMarkers = SEND_DEBUG_STRUCTURE_MARKERS.get();
+        logStructureAttempts = LOG_STRUCTURE_ATTEMPTS.get();
 
         Bettersparsestructures.LOGGER.info(
-                "Loaded Better Sparse Structures server config: globalSpacingRadiusChunks={}, whitelistedStructures={}, spacingRadiusOverrides={}, sendDebugStructureMarkers={}",
+                "Loaded Better Sparse Structures server config: globalSpacingRadiusChunks={}, whitelistedStructures={}, countWhitelistedStructuresForSpacing={}, spacingRadiusOverrides={}, sendDebugStructureMarkers={}, logStructureAttempts={}",
                 structureRules.globalSpacingRadiusChunks(),
                 structureRules.whitelistCount(),
+                countWhitelistedStructuresForSpacing(),
                 structureRules.overrideCount(),
-                sendDebugStructureMarkers
+                sendDebugStructureMarkers,
+                logStructureAttempts
         );
 
         DebugStructureMarkerService.onServerConfigChanged(previousDebugMarkers, sendDebugStructureMarkers);

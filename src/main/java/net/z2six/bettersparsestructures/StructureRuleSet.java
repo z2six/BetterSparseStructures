@@ -13,27 +13,37 @@ public final class StructureRuleSet {
             .reversed();
 
     private final int globalSpacingRadiusChunks;
+    private final int maxSpacingRadiusChunks;
     private final List<MatchRule> whitelistRules;
     private final List<SpacingOverrideRule> spacingOverrideRules;
 
-    private StructureRuleSet(int globalSpacingRadiusChunks, List<MatchRule> whitelistRules, List<SpacingOverrideRule> spacingOverrideRules) {
+    private StructureRuleSet(int globalSpacingRadiusChunks, int maxSpacingRadiusChunks, List<MatchRule> whitelistRules, List<SpacingOverrideRule> spacingOverrideRules) {
         this.globalSpacingRadiusChunks = globalSpacingRadiusChunks;
+        this.maxSpacingRadiusChunks = maxSpacingRadiusChunks;
         this.whitelistRules = whitelistRules;
         this.spacingOverrideRules = spacingOverrideRules;
     }
 
     public static StructureRuleSet empty(int globalSpacingRadiusChunks) {
-        return new StructureRuleSet(globalSpacingRadiusChunks, List.of(), List.of());
+        return new StructureRuleSet(globalSpacingRadiusChunks, globalSpacingRadiusChunks, List.of(), List.of());
     }
 
     public static StructureRuleSet create(int globalSpacingRadiusChunks, List<? extends String> whitelistEntries, List<? extends String> overrideEntries) {
         List<MatchRule> whitelistRules = parseWhitelistRules(whitelistEntries);
         List<SpacingOverrideRule> overrideRules = parseOverrideRules(overrideEntries);
-        return new StructureRuleSet(globalSpacingRadiusChunks, whitelistRules, overrideRules);
+        int maxSpacingRadiusChunks = globalSpacingRadiusChunks;
+        for (SpacingOverrideRule overrideRule : overrideRules) {
+            maxSpacingRadiusChunks = Math.max(maxSpacingRadiusChunks, overrideRule.radiusChunks());
+        }
+        return new StructureRuleSet(globalSpacingRadiusChunks, maxSpacingRadiusChunks, whitelistRules, overrideRules);
     }
 
     public int globalSpacingRadiusChunks() {
         return globalSpacingRadiusChunks;
+    }
+
+    public int maxSpacingRadiusChunks() {
+        return maxSpacingRadiusChunks;
     }
 
     public int whitelistCount() {
