@@ -2,12 +2,11 @@ package net.z2six.bettersparsestructures;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.world.level.ChunkPos;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.network.PacketDistributor;
 
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -109,9 +108,9 @@ public final class DebugStructureMarkerService {
         }
     }
 
-    private static void sendIfSupported(ServerPlayer serverPlayer, CustomPacketPayload payload) {
-        if (serverPlayer.connection.hasChannel(payload.type())) {
-            PacketDistributor.sendToPlayer(serverPlayer, payload);
+    private static void sendIfSupported(ServerPlayer serverPlayer, Object payload) {
+        if (DebugStructureNetworking.CHANNEL.isRemotePresent(serverPlayer.connection.connection)) {
+            DebugStructureNetworking.CHANNEL.send(PacketDistributor.PLAYER.with(() -> serverPlayer), payload);
         }
     }
 

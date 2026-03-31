@@ -1,7 +1,7 @@
 package net.z2six.bettersparsestructures;
 
-import net.neoforged.fml.event.config.ModConfigEvent;
-import net.neoforged.neoforge.common.ModConfigSpec;
+import net.minecraftforge.common.ForgeConfigSpec;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
 
 import java.util.List;
 
@@ -9,9 +9,9 @@ public final class ServerConfig {
     public static final int MAX_SPACING_RADIUS_CHUNKS = 10_000;
     public static final double MAX_SIZE_SCALING_VALUE = 1_000_000_000_000D;
 
-    private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
+    private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
 
-    private static final ModConfigSpec.IntValue GLOBAL_SPACING_RADIUS_CHUNKS = BUILDER
+    private static final ForgeConfigSpec.IntValue GLOBAL_SPACING_RADIUS_CHUNKS = BUILDER
             .comment(
                     "Minimum spacing value used when no override matches.",
                     "In horizontal mode this is a chunk radius between structure starts.",
@@ -19,7 +19,7 @@ public final class ServerConfig {
             )
             .defineInRange("globalSpacingRadiusChunks", 50, 0, MAX_SPACING_RADIUS_CHUNKS);
 
-    private static final ModConfigSpec.ConfigValue<List<? extends String>> WHITELISTED_STRUCTURES = BUILDER
+    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> WHITELISTED_STRUCTURES = BUILDER
             .comment(
                     "Structure ids or wildcard patterns that should bypass Better Sparse Structures entirely.",
                     "Whitelisted structures are never blocked by this mod.",
@@ -31,11 +31,11 @@ public final class ServerConfig {
             )
             .defineListAllowEmpty("whitelistedStructures", List.of(), ServerConfig::isStringEntry);
 
-    private static final ModConfigSpec.BooleanValue COUNT_WHITELISTED_STRUCTURES_FOR_SPACING = BUILDER
+    private static final ForgeConfigSpec.BooleanValue COUNT_WHITELISTED_STRUCTURES_FOR_SPACING = BUILDER
             .comment("If true, whitelisted structures are still remembered as nearby blockers for other structures. They are still never blocked themselves.")
             .define("countWhitelistedStructuresForSpacing", true);
 
-    private static final ModConfigSpec.ConfigValue<List<? extends String>> SPACING_RADIUS_OVERRIDES = BUILDER
+    private static final ForgeConfigSpec.ConfigValue<List<? extends String>> SPACING_RADIUS_OVERRIDES = BUILDER
             .comment(
                     "Per-structure or per-namespace spacing overrides in the form \"pattern=radius\".",
                     "More specific matches win over broader ones. Later entries win ties.",
@@ -47,7 +47,7 @@ public final class ServerConfig {
             )
             .defineListAllowEmpty("spacingRadiusOverrides", List.of(), ServerConfig::isStringEntry);
 
-    private static final ModConfigSpec.BooleanValue ENABLE_SIZE_SCALED_SPACING = BUILDER
+    private static final ForgeConfigSpec.BooleanValue ENABLE_SIZE_SCALED_SPACING = BUILDER
             .comment(
                     "If true, spacing is scaled by realized structure size.",
                     "The size score uses the hybrid formula footprint * sqrt(height).",
@@ -55,38 +55,38 @@ public final class ServerConfig {
             )
             .define("enableSizeScaledSpacing", false);
 
-    private static final ModConfigSpec.DoubleValue MINIMUM_SIZE = BUILDER
+    private static final ForgeConfigSpec.DoubleValue MINIMUM_SIZE = BUILDER
             .comment("The hybrid size score that counts as the smallest structure for size-scaled spacing.")
             .defineInRange("minimumSize", 10.0D, 0.0D, MAX_SIZE_SCALING_VALUE);
 
-    private static final ModConfigSpec.DoubleValue MAXIMUM_SIZE = BUILDER
+    private static final ForgeConfigSpec.DoubleValue MAXIMUM_SIZE = BUILDER
             .comment("The hybrid size score that counts as the largest structure for size-scaled spacing.")
             .defineInRange("maximumSize", 1_000.0D, 0.0D, MAX_SIZE_SCALING_VALUE);
 
-    private static final ModConfigSpec.DoubleValue DISTANCE_MODIFIER = BUILDER
+    private static final ForgeConfigSpec.DoubleValue DISTANCE_MODIFIER = BUILDER
             .comment(
                     "How strongly size scaling changes spacing.",
                     "A value of 10 means the smallest structures use 0.1x spacing, the midpoint uses 1x, and the largest use 10x."
             )
             .defineInRange("distanceModifier", 10.0D, 1.0D, 1_000.0D);
 
-    private static final ModConfigSpec.BooleanValue USE_3D_BLOCK_SPACING = BUILDER
+    private static final ForgeConfigSpec.BooleanValue USE_3D_BLOCK_SPACING = BUILDER
             .comment("If true, spacing is checked in 3D using full structure bounding boxes. Each spacing chunk is treated as 16 blocks.")
             .define("use3dBlockSpacing", false);
 
-    private static final ModConfigSpec.BooleanValue ALLOW_STRUCTURE_OVERLAP = BUILDER
+    private static final ForgeConfigSpec.BooleanValue ALLOW_STRUCTURE_OVERLAP = BUILDER
             .comment("If false, a new structure is rejected whenever its realized 3D bounding box overlaps any already-allowed structure, regardless of whitelisting.")
             .define("allowStructureOverlap", false);
 
-    private static final ModConfigSpec.BooleanValue SEND_DEBUG_STRUCTURE_MARKERS = BUILDER
+    private static final ForgeConfigSpec.BooleanValue SEND_DEBUG_STRUCTURE_MARKERS = BUILDER
             .comment("Sends server-side structure attempt debug markers to modded clients that support them.")
             .define("sendDebugStructureMarkers", false);
 
-    private static final ModConfigSpec.BooleanValue LOG_STRUCTURE_ATTEMPTS = BUILDER
+    private static final ForgeConfigSpec.BooleanValue LOG_STRUCTURE_ATTEMPTS = BUILDER
             .comment("Logs accepted, rejected, and whitelisted structure attempts at INFO level.")
             .define("logStructureAttempts", true);
 
-    public static final ModConfigSpec SPEC = BUILDER.build();
+    public static final ForgeConfigSpec SPEC = BUILDER.build();
 
     private static volatile StructureRuleSet structureRules = StructureRuleSet.empty(50);
     private static volatile boolean sendDebugStructureMarkers;

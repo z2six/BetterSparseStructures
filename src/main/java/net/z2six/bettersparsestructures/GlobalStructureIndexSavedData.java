@@ -4,7 +4,6 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -35,10 +34,6 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     private static final String LEGACY_UNKNOWN_STRUCTURE_ID = Bettersparsestructures.MODID + ":legacy_unknown";
 
     private static final Map<ServerLevel, GlobalStructureIndexSavedData> CACHE = new WeakHashMap<>();
-    private static final Factory<GlobalStructureIndexSavedData> FACTORY = new Factory<>(
-            GlobalStructureIndexSavedData::new,
-            GlobalStructureIndexSavedData::load
-    );
 
     private final Long2ObjectOpenHashMap<StoredStructure> rememberedStructures = new Long2ObjectOpenHashMap<>();
     private final Long2ObjectOpenHashMap<LongArrayList> rememberedStructuresByCell = new Long2ObjectOpenHashMap<>();
@@ -46,7 +41,7 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     private GlobalStructureIndexSavedData() {
     }
 
-    private static GlobalStructureIndexSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
+    private static GlobalStructureIndexSavedData load(CompoundTag tag) {
         GlobalStructureIndexSavedData data = new GlobalStructureIndexSavedData();
         if (tag.contains(STRUCTURES_TAG, Tag.TAG_LIST)) {
             ListTag entries = tag.getList(STRUCTURES_TAG, Tag.TAG_COMPOUND);
@@ -73,7 +68,7 @@ public final class GlobalStructureIndexSavedData extends SavedData {
 
     private static GlobalStructureIndexSavedData loadFromStorage(ServerLevel level) {
         DimensionDataStorage dataStorage = level.getDataStorage();
-        return dataStorage.computeIfAbsent(FACTORY, DATA_NAME);
+        return dataStorage.computeIfAbsent(GlobalStructureIndexSavedData::load, GlobalStructureIndexSavedData::new, DATA_NAME);
     }
 
     public synchronized boolean tryAllowStructure(
@@ -250,7 +245,7 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     }
 
     @Override
-    public synchronized CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public synchronized CompoundTag save(CompoundTag tag) {
         ListTag entries = new ListTag();
         for (Long2ObjectMap.Entry<StoredStructure> entry : this.rememberedStructures.long2ObjectEntrySet()) {
             CompoundTag structureTag = new CompoundTag();
