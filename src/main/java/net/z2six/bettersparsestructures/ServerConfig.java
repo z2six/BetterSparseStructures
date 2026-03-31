@@ -7,6 +7,7 @@ import java.util.List;
 
 public final class ServerConfig {
     public static final int MAX_SPACING_RADIUS_CHUNKS = 10_000;
+    public static final int MAX_FAILURE_COUNT = 100_000;
     public static final double MAX_SIZE_SCALING_VALUE = 1_000_000_000_000D;
     public static final double MAX_REPETITION_BIAS_WEIGHT = 100.0D;
     public static final double MAX_REPETITION_BIAS_THRESHOLD = 1_000.0D;
@@ -15,6 +16,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.IntValue GLOBAL_SPACING_RADIUS_CHUNKS = BUILDER
             .comment(
+                    "====================",
+                    "Core Spacing",
+                    "====================",
                     "Minimum spacing value used when no override matches.",
                     "In horizontal mode this is a chunk radius between structure starts.",
                     "In 3D mode this is converted to blocks using 16 blocks per chunk."
@@ -23,6 +27,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> WHITELISTED_STRUCTURES = BUILDER
             .comment(
+                    "====================",
+                    "Whitelisting",
+                    "====================",
                     "Structure ids or wildcard patterns that should bypass Better Sparse Structures entirely.",
                     "Whitelisted structures are never blocked by this mod.",
                     "Whether they also count as blockers for other structures is controlled by countWhitelistedStructuresForSpacing.",
@@ -51,6 +58,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.BooleanValue ENABLE_SIZE_SCALED_SPACING = BUILDER
             .comment(
+                    "====================",
+                    "Size Scaling",
+                    "====================",
                     "If true, spacing is scaled by realized structure size.",
                     "The size score uses the hybrid formula footprint * sqrt(height).",
                     "Small structures shrink spacing, large structures expand it."
@@ -74,6 +84,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.BooleanValue ENABLE_REPETITION_BIAS = BUILDER
             .comment(
+                    "====================",
+                    "Repetition Bias",
+                    "====================",
                     "If true, repeated nearby structure ids and size classes build up pressure against generating the same kinds of structures again.",
                     "This helps large modpacks avoid the same small or repeated structures winning every time.",
                     "Whitelisted structures are still never blocked by this bias."
@@ -109,8 +122,46 @@ public final class ServerConfig {
             )
             .defineInRange("repetitionBiasThreshold", 2.5D, 0.0D, MAX_REPETITION_BIAS_THRESHOLD);
 
+    private static final ModConfigSpec.BooleanValue ENABLE_FIRST_OCCURRENCE_PROTECTION = BUILDER
+            .comment(
+                    "====================",
+                    "First Occurrence Protection",
+                    "====================",
+                    "If true, structures that have never been accepted before get extra help to appear at least once.",
+                    "This help gets stronger every time that structure fails to be accepted.",
+                    "Once the configured failure limit is reached, the structure is forced to be accepted unless it would overlap another structure."
+            )
+            .define("enableFirstOccurrenceProtection", true);
+
+    private static final ModConfigSpec.DoubleValue FIRST_OCCURRENCE_STARTING_PREFERENCE_MULTIPLIER = BUILDER
+            .comment(
+                    "How strongly unseen structures are helped on their very first attempts.",
+                    "This multiplier is applied to spacing and repetition pressure.",
+                    "Lower values make unseen structures easier to accept immediately."
+            )
+            .defineInRange("firstOccurrenceStartingPreferenceMultiplier", 0.75D, 0.01D, 1.0D);
+
+    private static final ModConfigSpec.DoubleValue FIRST_OCCURRENCE_MINIMUM_PREFERENCE_MULTIPLIER = BUILDER
+            .comment(
+                    "How strong first-occurrence protection becomes right before forcing acceptance.",
+                    "Lower values give never-before-seen structures much lighter spacing and repetition penalties."
+            )
+            .defineInRange("firstOccurrenceMinimumPreferenceMultiplier", 0.15D, 0.0D, 1.0D);
+
+    private static final ModConfigSpec.IntValue FIRST_OCCURRENCE_FORCE_AFTER_FAILURES = BUILDER
+            .comment(
+                    "How many failed attempts a never-before-seen structure can have before Better Sparse Structures force-accepts it.",
+                    "Overlap is still never allowed, even when forced."
+            )
+            .defineInRange("firstOccurrenceForceAfterFailures", 8, 1, MAX_FAILURE_COUNT);
+
     private static final ModConfigSpec.BooleanValue USE_3D_BLOCK_SPACING = BUILDER
-            .comment("If true, spacing is checked in 3D using full structure bounding boxes. Each spacing chunk is treated as 16 blocks.")
+            .comment(
+                    "====================",
+                    "Placement Rules",
+                    "====================",
+                    "If true, spacing is checked in 3D using full structure bounding boxes. Each spacing chunk is treated as 16 blocks."
+            )
             .define("use3dBlockSpacing", false);
 
     private static final ModConfigSpec.BooleanValue ALLOW_STRUCTURE_OVERLAP = BUILDER
@@ -118,12 +169,25 @@ public final class ServerConfig {
             .define("allowStructureOverlap", false);
 
     private static final ModConfigSpec.BooleanValue SEND_DEBUG_STRUCTURE_MARKERS = BUILDER
-            .comment("Sends server-side structure attempt debug markers to modded clients that support them.")
+            .comment(
+                    "====================",
+                    "Debugging",
+                    "====================",
+                    "Sends server-side structure attempt debug markers to modded clients that support them."
+            )
             .define("sendDebugStructureMarkers", false);
 
     private static final ModConfigSpec.BooleanValue LOG_STRUCTURE_ATTEMPTS = BUILDER
             .comment("Logs accepted, rejected, and whitelisted structure attempts at INFO level.")
             .define("logStructureAttempts", true);
+
+    private static final ModConfigSpec.IntValue STRUCTURE_ATTEMPT_SUMMARY_INTERVAL = BUILDER
+            .comment(
+                    "If greater than 0, individual structure attempt logs are replaced with one summary log every N attempts.",
+                    "Example: 100 means Better Sparse Structures logs one running total summary after every 100 attempts.",
+                    "Set to 0 to keep individual structure attempt logs."
+            )
+            .defineInRange("structureAttemptSummaryInterval", 0, 0, MAX_FAILURE_COUNT);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
 
@@ -141,6 +205,11 @@ public final class ServerConfig {
     private static volatile double structureIdBiasWeight = 1.0D;
     private static volatile double sizeClassBiasWeight = 0.35D;
     private static volatile double repetitionBiasThreshold = 2.5D;
+    private static volatile boolean enableFirstOccurrenceProtection = true;
+    private static volatile double firstOccurrenceStartingPreferenceMultiplier = 0.75D;
+    private static volatile double firstOccurrenceMinimumPreferenceMultiplier = 0.15D;
+    private static volatile int firstOccurrenceForceAfterFailures = 8;
+    private static volatile int structureAttemptSummaryInterval;
 
     private ServerConfig() {
     }
@@ -205,6 +274,26 @@ public final class ServerConfig {
         return repetitionBiasThreshold;
     }
 
+    public static boolean enableFirstOccurrenceProtection() {
+        return enableFirstOccurrenceProtection;
+    }
+
+    public static double firstOccurrenceStartingPreferenceMultiplier() {
+        return firstOccurrenceStartingPreferenceMultiplier;
+    }
+
+    public static double firstOccurrenceMinimumPreferenceMultiplier() {
+        return firstOccurrenceMinimumPreferenceMultiplier;
+    }
+
+    public static int firstOccurrenceForceAfterFailures() {
+        return firstOccurrenceForceAfterFailures;
+    }
+
+    public static int structureAttemptSummaryInterval() {
+        return structureAttemptSummaryInterval;
+    }
+
     public static void onConfigLoading(ModConfigEvent.Loading event) {
         apply(event);
     }
@@ -235,11 +324,16 @@ public final class ServerConfig {
         structureIdBiasWeight = STRUCTURE_ID_BIAS_WEIGHT.get();
         sizeClassBiasWeight = SIZE_CLASS_BIAS_WEIGHT.get();
         repetitionBiasThreshold = REPETITION_BIAS_THRESHOLD.get();
+        enableFirstOccurrenceProtection = ENABLE_FIRST_OCCURRENCE_PROTECTION.get();
+        firstOccurrenceStartingPreferenceMultiplier = FIRST_OCCURRENCE_STARTING_PREFERENCE_MULTIPLIER.get();
+        firstOccurrenceMinimumPreferenceMultiplier = Math.min(firstOccurrenceStartingPreferenceMultiplier, FIRST_OCCURRENCE_MINIMUM_PREFERENCE_MULTIPLIER.get());
+        firstOccurrenceForceAfterFailures = FIRST_OCCURRENCE_FORCE_AFTER_FAILURES.get();
         use3dBlockSpacing = USE_3D_BLOCK_SPACING.get();
         allowStructureOverlap = ALLOW_STRUCTURE_OVERLAP.get();
+        structureAttemptSummaryInterval = STRUCTURE_ATTEMPT_SUMMARY_INTERVAL.get();
 
         Bettersparsestructures.LOGGER.info(
-                "Loaded Better Sparse Structures server config: globalSpacingRadiusChunks={}, whitelistedStructures={}, countWhitelistedStructuresForSpacing={}, spacingRadiusOverrides={}, enableSizeScaledSpacing={}, minimumSize={}, maximumSize={}, distanceModifier={}, enableRepetitionBias={}, repetitionBiasRadiusChunks={}, structureIdBiasWeight={}, sizeClassBiasWeight={}, repetitionBiasThreshold={}, use3dBlockSpacing={}, allowStructureOverlap={}, sendDebugStructureMarkers={}, logStructureAttempts={}",
+                "Loaded Better Sparse Structures server config: globalSpacingRadiusChunks={}, whitelistedStructures={}, countWhitelistedStructuresForSpacing={}, spacingRadiusOverrides={}, enableSizeScaledSpacing={}, minimumSize={}, maximumSize={}, distanceModifier={}, enableRepetitionBias={}, repetitionBiasRadiusChunks={}, structureIdBiasWeight={}, sizeClassBiasWeight={}, repetitionBiasThreshold={}, enableFirstOccurrenceProtection={}, firstOccurrenceStartingPreferenceMultiplier={}, firstOccurrenceMinimumPreferenceMultiplier={}, firstOccurrenceForceAfterFailures={}, use3dBlockSpacing={}, allowStructureOverlap={}, sendDebugStructureMarkers={}, logStructureAttempts={}, structureAttemptSummaryInterval={}",
                 structureRules.globalSpacingRadiusChunks(),
                 structureRules.whitelistCount(),
                 countWhitelistedStructuresForSpacing(),
@@ -253,10 +347,15 @@ public final class ServerConfig {
                 structureIdBiasWeight,
                 sizeClassBiasWeight,
                 repetitionBiasThreshold,
+                enableFirstOccurrenceProtection,
+                firstOccurrenceStartingPreferenceMultiplier,
+                firstOccurrenceMinimumPreferenceMultiplier,
+                firstOccurrenceForceAfterFailures,
                 use3dBlockSpacing,
                 allowStructureOverlap,
                 sendDebugStructureMarkers,
-                logStructureAttempts
+                logStructureAttempts,
+                structureAttemptSummaryInterval
         );
 
         DebugStructureMarkerService.onServerConfigChanged(previousDebugMarkers, sendDebugStructureMarkers);

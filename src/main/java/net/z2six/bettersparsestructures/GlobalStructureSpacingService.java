@@ -26,8 +26,9 @@ public final class GlobalStructureSpacingService {
         GlobalStructureIndexSavedData.DecisionResult decision = GlobalStructureIndexSavedData.get(serverLevel)
                 .decideStructure(structureStart.getChunkPos(), structureId, boundingBox, rules, whitelisted);
         boolean accepted = decision.accepted();
+        StructureAttemptSummaryLogger.recordAttempt(whitelisted, decision);
 
-        if (ServerConfig.logStructureAttempts()) {
+        if (ServerConfig.logStructureAttempts() && ServerConfig.structureAttemptSummaryInterval() <= 0) {
             String decisionText = accepted ? (whitelisted ? "Whitelisted" : "Accepted") : "Rejected";
             double sizeScore = GlobalStructureIndexSavedData.hybridSizeScore(boundingBox);
             double sizeMultiplier = GlobalStructureIndexSavedData.sizeSpacingMultiplier(boundingBox);
@@ -37,6 +38,7 @@ public final class GlobalStructureSpacingService {
                     : String.format(java.util.Locale.ROOT, "%.2f chunks", baseSpacing * sizeMultiplier);
             String rejectionReason = decision.rejectionReason().name().toLowerCase(java.util.Locale.ROOT);
             GlobalStructureIndexSavedData.RepetitionBiasResult repetitionBias = decision.repetitionBias();
+            GlobalStructureIndexSavedData.FirstOccurrenceResult firstOccurrence = decision.firstOccurrence();
             Bettersparsestructures.LOGGER.info(
                     """
                     {} structure attempt {}
@@ -51,6 +53,7 @@ public final class GlobalStructureSpacingService {
                       effectiveSpacing={}
                       rejectionReason={}
                       repetitionBias[id={}, sizeClass={}, total={}, threshold={}]
+                      firstOccurrence[protectionApplied={}, representedBefore={}, failuresBefore={}, failuresAfter={}, preferenceMultiplier={}, forcedAcceptance={}]
                     """,
                     decisionText,
                     structureId,
@@ -74,7 +77,13 @@ public final class GlobalStructureSpacingService {
                     String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.structureIdPressure()),
                     String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.sizeClassPressure()),
                     String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.totalPressure()),
-                    String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.threshold())
+                    String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.threshold()),
+                    firstOccurrence.protectionApplied(),
+                    firstOccurrence.representedBefore(),
+                    firstOccurrence.failuresBefore(),
+                    firstOccurrence.failuresAfter(),
+                    String.format(java.util.Locale.ROOT, "%.3f", firstOccurrence.preferenceMultiplier()),
+                    firstOccurrence.forcedAcceptance()
             );
         }
 

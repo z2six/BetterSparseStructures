@@ -14,7 +14,10 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.level.storage.DimensionDataStorage;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 public final class GlobalStructureIndexSavedData extends SavedData {
@@ -32,6 +35,9 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     private static final String MAX_X_TAG = "max_x";
     private static final String MAX_Y_TAG = "max_y";
     private static final String MAX_Z_TAG = "max_z";
+    private static final String REPRESENTED_STRUCTURE_IDS_TAG = "represented_structure_ids";
+    private static final String FIRST_OCCURRENCE_FAILURES_TAG = "first_occurrence_failures";
+    private static final String FAILURE_COUNT_TAG = "failure_count";
     private static final String LEGACY_UNKNOWN_STRUCTURE_ID = Bettersparsestructures.MODID + ":legacy_unknown";
 
     private static final Map<ServerLevel, GlobalStructureIndexSavedData> CACHE = new WeakHashMap<>();
@@ -42,6 +48,8 @@ public final class GlobalStructureIndexSavedData extends SavedData {
 
     private final Long2ObjectOpenHashMap<StoredStructure> rememberedStructures = new Long2ObjectOpenHashMap<>();
     private final Long2ObjectOpenHashMap<LongArrayList> rememberedStructuresByCell = new Long2ObjectOpenHashMap<>();
+    private final Set<String> representedStructureIds = new HashSet<>();
+    private final Map<String, Integer> firstOccurrenceFailureCounts = new HashMap<>();
 
     private GlobalStructureIndexSavedData() {
     }
@@ -55,11 +63,37 @@ public final class GlobalStructureIndexSavedData extends SavedData {
                 long chunkKey = entry.getLong(CHUNK_TAG);
                 String structureId = entry.getString(STRUCTURE_ID_TAG);
                 StoredBoundingBox boundingBox = readBoundingBox(entry);
-                data.rememberStructure(chunkKey, new StoredStructure(structureId.isBlank() ? LEGACY_UNKNOWN_STRUCTURE_ID : structureId, boundingBox));
+                String sanitizedStructureId = structureId.isBlank() ? LEGACY_UNKNOWN_STRUCTURE_ID : structureId;
+                data.rememberStructure(chunkKey, new StoredStructure(sanitizedStructureId, boundingBox));
+                if (!LEGACY_UNKNOWN_STRUCTURE_ID.equals(sanitizedStructureId)) {
+                    data.representedStructureIds.add(sanitizedStructureId);
+                }
             }
         } else {
             for (long chunkKey : tag.getLongArray(LEGACY_POSITIONS_TAG)) {
                 data.rememberStructure(chunkKey, new StoredStructure(LEGACY_UNKNOWN_STRUCTURE_ID, null));
+            }
+        }
+
+        if (tag.contains(REPRESENTED_STRUCTURE_IDS_TAG, Tag.TAG_LIST)) {
+            ListTag representedIds = tag.getList(REPRESENTED_STRUCTURE_IDS_TAG, Tag.TAG_STRING);
+            for (int index = 0; index < representedIds.size(); index++) {
+                String structureId = representedIds.getString(index);
+                if (!structureId.isBlank()) {
+                    data.representedStructureIds.add(structureId);
+                }
+            }
+        }
+
+        if (tag.contains(FIRST_OCCURRENCE_FAILURES_TAG, Tag.TAG_LIST)) {
+            ListTag failureEntries = tag.getList(FIRST_OCCURRENCE_FAILURES_TAG, Tag.TAG_COMPOUND);
+            for (int index = 0; index < failureEntries.size(); index++) {
+                CompoundTag entry = failureEntries.getCompound(index);
+                String structureId = entry.getString(STRUCTURE_ID_TAG);
+                int failures = entry.getInt(FAILURE_COUNT_TAG);
+                if (!structureId.isBlank() && failures > 0) {
+                    data.firstOccurrenceFailureCounts.put(structureId, failures);
+                }
             }
         }
         return data;
@@ -94,24 +128,25 @@ public final class GlobalStructureIndexSavedData extends SavedData {
             boolean whitelisted
     ) {
         StoredStructure candidate = new StoredStructure(candidateStructureId, StoredBoundingBox.from(candidateBoundingBox));
+        FirstOccurrenceResult firstOccurrence = firstOccurrence(candidateStructureId);
 
         if (!ServerConfig.allowStructureOverlap() && overlapsExistingStructure(candidateChunk, candidate)) {
-            return DecisionResult.rejected(RejectionReason.OVERLAP, RepetitionBiasResult.none());
+            return reject(candidateStructureId, RejectionReason.OVERLAP, RepetitionBiasResult.none(), firstOccurrence);
         }
 
         RepetitionBiasResult repetitionBias = RepetitionBiasResult.none();
-        if (!whitelisted) {
+        if (!whitelisted && !firstOccurrence.forcedAcceptance()) {
             if (ServerConfig.use3dBlockSpacing()) {
-                if (violates3dSpacing(candidateChunk, candidate, rules)) {
-                    return DecisionResult.rejected(RejectionReason.SPACING, RepetitionBiasResult.none());
+                if (violates3dSpacing(candidateChunk, candidate, rules, firstOccurrence.preferenceMultiplier())) {
+                    return reject(candidateStructureId, RejectionReason.SPACING, RepetitionBiasResult.none(), firstOccurrence);
                 }
-            } else if (violates2dSpacing(candidateChunk, candidate, rules)) {
-                return DecisionResult.rejected(RejectionReason.SPACING, RepetitionBiasResult.none());
+            } else if (violates2dSpacing(candidateChunk, candidate, rules, firstOccurrence.preferenceMultiplier())) {
+                return reject(candidateStructureId, RejectionReason.SPACING, RepetitionBiasResult.none(), firstOccurrence);
             }
 
-            repetitionBias = repetitionBias(candidateChunk, candidate, rules);
+            repetitionBias = repetitionBias(candidateChunk, candidate, rules, firstOccurrence.preferenceMultiplier());
             if (repetitionBias.rejected()) {
-                return DecisionResult.rejected(RejectionReason.REPETITION, repetitionBias);
+                return reject(candidateStructureId, RejectionReason.REPETITION, repetitionBias, firstOccurrence);
             }
         }
 
@@ -124,7 +159,8 @@ public final class GlobalStructureIndexSavedData extends SavedData {
             }
         }
 
-        return DecisionResult.accepted(repetitionBias);
+        markRepresented(candidateStructureId);
+        return DecisionResult.accepted(repetitionBias, firstOccurrence.accepted());
     }
 
     public static double hybridSizeScore(BoundingBox boundingBox) {
@@ -139,8 +175,8 @@ public final class GlobalStructureIndexSavedData extends SavedData {
         return sizeClass(new StoredStructure("candidate", StoredBoundingBox.from(boundingBox))).serializedName();
     }
 
-    private boolean violates2dSpacing(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules) {
-        double candidateRadiusChunks = scaledSpacingChunks(rules.spacingRadiusChunks(candidate.structureId()), candidate);
+    private boolean violates2dSpacing(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules, double candidatePreferenceMultiplier) {
+        double candidateRadiusChunks = scaledSpacingChunks(rules.spacingRadiusChunks(candidate.structureId()), candidate) * candidatePreferenceMultiplier;
         int maxRadiusBlocks = maxEffectiveSpacingBlocks(rules);
         int candidateBlockX = candidateChunk.getMinBlockX() + 8;
         int candidateBlockZ = candidateChunk.getMinBlockZ() + 8;
@@ -176,8 +212,8 @@ public final class GlobalStructureIndexSavedData extends SavedData {
         return false;
     }
 
-    private boolean violates3dSpacing(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules) {
-        double candidateRadiusBlocks = scaledSpacingBlocks(rules.spacingRadiusChunks(candidate.structureId()), candidate);
+    private boolean violates3dSpacing(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules, double candidatePreferenceMultiplier) {
+        double candidateRadiusBlocks = scaledSpacingBlocks(rules.spacingRadiusChunks(candidate.structureId()), candidate) * candidatePreferenceMultiplier;
         int maxRadiusBlocks = maxEffectiveSpacingBlocks(rules);
         StoredBoundingBox candidateBox = candidate.boundingBox();
         LongOpenHashSet candidateKeys = collectCandidateKeys(
@@ -251,7 +287,7 @@ public final class GlobalStructureIndexSavedData extends SavedData {
         return Math.pow(modifier, normalized * 2.0D - 1.0D);
     }
 
-    private RepetitionBiasResult repetitionBias(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules) {
+    private RepetitionBiasResult repetitionBias(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules, double preferenceMultiplier) {
         if (!ServerConfig.enableRepetitionBias()) {
             return RepetitionBiasResult.none();
         }
@@ -332,7 +368,7 @@ public final class GlobalStructureIndexSavedData extends SavedData {
             }
         }
 
-        double totalPressure = structureIdPressure + sizeClassPressure;
+        double totalPressure = (structureIdPressure + sizeClassPressure) * preferenceMultiplier;
         return new RepetitionBiasResult(
                 structureIdPressure,
                 sizeClassPressure,
@@ -341,6 +377,53 @@ public final class GlobalStructureIndexSavedData extends SavedData {
                 candidateSizeClass,
                 totalPressure >= ServerConfig.repetitionBiasThreshold()
         );
+    }
+
+    private FirstOccurrenceResult firstOccurrence(String structureId) {
+        if (!ServerConfig.enableFirstOccurrenceProtection() || this.representedStructureIds.contains(structureId)) {
+            return FirstOccurrenceResult.none();
+        }
+
+        int failuresBefore = this.firstOccurrenceFailureCounts.getOrDefault(structureId, 0);
+        int forceAfterFailures = ServerConfig.firstOccurrenceForceAfterFailures();
+        double progress = Math.min(1.0D, (double) failuresBefore / forceAfterFailures);
+        double preferenceMultiplier = interpolate(
+                ServerConfig.firstOccurrenceStartingPreferenceMultiplier(),
+                ServerConfig.firstOccurrenceMinimumPreferenceMultiplier(),
+                progress
+        );
+        return new FirstOccurrenceResult(true, failuresBefore, failuresBefore, preferenceMultiplier, failuresBefore >= forceAfterFailures, false);
+    }
+
+    private DecisionResult reject(String structureId, RejectionReason rejectionReason, RepetitionBiasResult repetitionBias, FirstOccurrenceResult firstOccurrence) {
+        FirstOccurrenceResult updatedFirstOccurrence = firstOccurrence;
+        if (firstOccurrence.protectionApplied()) {
+            int failuresAfter = incrementFirstOccurrenceFailures(structureId);
+            updatedFirstOccurrence = firstOccurrence.rejected(failuresAfter);
+        }
+
+        return DecisionResult.rejected(rejectionReason, repetitionBias, updatedFirstOccurrence);
+    }
+
+    private int incrementFirstOccurrenceFailures(String structureId) {
+        int failuresAfter = Math.min(ServerConfig.MAX_FAILURE_COUNT, this.firstOccurrenceFailureCounts.getOrDefault(structureId, 0) + 1);
+        this.firstOccurrenceFailureCounts.put(structureId, failuresAfter);
+        this.setDirty();
+        return failuresAfter;
+    }
+
+    private void markRepresented(String structureId) {
+        boolean changed = this.representedStructureIds.add(structureId);
+        if (this.firstOccurrenceFailureCounts.remove(structureId) != null) {
+            changed = true;
+        }
+        if (changed) {
+            this.setDirty();
+        }
+    }
+
+    private static double interpolate(double start, double end, double progress) {
+        return start + (end - start) * progress;
     }
 
     private static double closeness(long squaredDistance, int radiusBlocks) {
@@ -408,6 +491,21 @@ public final class GlobalStructureIndexSavedData extends SavedData {
             entries.add(structureTag);
         }
         tag.put(STRUCTURES_TAG, entries);
+
+        ListTag representedIds = new ListTag();
+        for (String structureId : this.representedStructureIds) {
+            representedIds.add(net.minecraft.nbt.StringTag.valueOf(structureId));
+        }
+        tag.put(REPRESENTED_STRUCTURE_IDS_TAG, representedIds);
+
+        ListTag failureEntries = new ListTag();
+        for (Map.Entry<String, Integer> entry : this.firstOccurrenceFailureCounts.entrySet()) {
+            CompoundTag failureTag = new CompoundTag();
+            failureTag.putString(STRUCTURE_ID_TAG, entry.getKey());
+            failureTag.putInt(FAILURE_COUNT_TAG, entry.getValue());
+            failureEntries.add(failureTag);
+        }
+        tag.put(FIRST_OCCURRENCE_FAILURES_TAG, failureEntries);
         return tag;
     }
 
@@ -518,13 +616,13 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     private record StoredStructure(String structureId, StoredBoundingBox boundingBox) {
     }
 
-    public record DecisionResult(boolean accepted, RejectionReason rejectionReason, RepetitionBiasResult repetitionBias) {
-        public static DecisionResult accepted(RepetitionBiasResult repetitionBias) {
-            return new DecisionResult(true, RejectionReason.NONE, repetitionBias);
+    public record DecisionResult(boolean accepted, RejectionReason rejectionReason, RepetitionBiasResult repetitionBias, FirstOccurrenceResult firstOccurrence) {
+        public static DecisionResult accepted(RepetitionBiasResult repetitionBias, FirstOccurrenceResult firstOccurrence) {
+            return new DecisionResult(true, RejectionReason.NONE, repetitionBias, firstOccurrence);
         }
 
-        public static DecisionResult rejected(RejectionReason rejectionReason, RepetitionBiasResult repetitionBias) {
-            return new DecisionResult(false, rejectionReason, repetitionBias);
+        public static DecisionResult rejected(RejectionReason rejectionReason, RepetitionBiasResult repetitionBias, FirstOccurrenceResult firstOccurrence) {
+            return new DecisionResult(false, rejectionReason, repetitionBias, firstOccurrence);
         }
     }
 
@@ -545,6 +643,27 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     ) {
         public static RepetitionBiasResult none() {
             return new RepetitionBiasResult(0.0D, 0.0D, 0.0D, ServerConfig.repetitionBiasThreshold(), SizeClass.UNKNOWN, false);
+        }
+    }
+
+    public record FirstOccurrenceResult(
+            boolean protectionApplied,
+            int failuresBefore,
+            int failuresAfter,
+            double preferenceMultiplier,
+            boolean forcedAcceptance,
+            boolean representedBefore
+    ) {
+        public static FirstOccurrenceResult none() {
+            return new FirstOccurrenceResult(false, 0, 0, 1.0D, false, true);
+        }
+
+        public FirstOccurrenceResult rejected(int failuresAfter) {
+            return new FirstOccurrenceResult(this.protectionApplied, this.failuresBefore, failuresAfter, this.preferenceMultiplier, this.forcedAcceptance, this.representedBefore);
+        }
+
+        public FirstOccurrenceResult accepted() {
+            return new FirstOccurrenceResult(this.protectionApplied, this.failuresBefore, 0, this.preferenceMultiplier, this.forcedAcceptance, this.representedBefore);
         }
     }
 
