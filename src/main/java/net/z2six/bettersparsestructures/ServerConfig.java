@@ -27,6 +27,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> WHITELISTED_STRUCTURES = BUILDER
             .comment(
+                    "",
+                    "",
+                    "",
                     "====================",
                     "Whitelisting",
                     "====================",
@@ -41,11 +44,17 @@ public final class ServerConfig {
             .defineListAllowEmpty("whitelistedStructures", List.of(), ServerConfig::isStringEntry);
 
     private static final ModConfigSpec.BooleanValue COUNT_WHITELISTED_STRUCTURES_FOR_SPACING = BUILDER
-            .comment("If true, whitelisted structures are still remembered as nearby blockers for other structures. They are still never blocked themselves.")
+            .comment(
+                    "",
+                    "",
+                    "If true, whitelisted structures are still remembered as nearby blockers for other structures. They are still never blocked themselves."
+            )
             .define("countWhitelistedStructuresForSpacing", true);
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> SPACING_RADIUS_OVERRIDES = BUILDER
             .comment(
+                    "",
+                    "",
                     "Per-structure or per-namespace spacing overrides in the form \"pattern=radius\".",
                     "More specific matches win over broader ones. Later entries win ties.",
                     "Override values are in chunks, and in 3D mode each chunk is treated as 16 blocks.",
@@ -58,6 +67,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.BooleanValue ENABLE_SIZE_SCALED_SPACING = BUILDER
             .comment(
+                    "",
+                    "",
+                    "",
                     "====================",
                     "Size Scaling",
                     "====================",
@@ -68,15 +80,25 @@ public final class ServerConfig {
             .define("enableSizeScaledSpacing", false);
 
     private static final ModConfigSpec.DoubleValue MINIMUM_SIZE = BUILDER
-            .comment("The hybrid size score that counts as the smallest structure for size-scaled spacing.")
+            .comment(
+                    "",
+                    "",
+                    "The hybrid size score that counts as the smallest structure for size-scaled spacing."
+            )
             .defineInRange("minimumSize", 10.0D, 0.0D, MAX_SIZE_SCALING_VALUE);
 
     private static final ModConfigSpec.DoubleValue MAXIMUM_SIZE = BUILDER
-            .comment("The hybrid size score that counts as the largest structure for size-scaled spacing.")
+            .comment(
+                    "",
+                    "",
+                    "The hybrid size score that counts as the largest structure for size-scaled spacing."
+            )
             .defineInRange("maximumSize", 1_000.0D, 0.0D, MAX_SIZE_SCALING_VALUE);
 
     private static final ModConfigSpec.DoubleValue DISTANCE_MODIFIER = BUILDER
             .comment(
+                    "",
+                    "",
                     "How strongly size scaling changes spacing.",
                     "A value of 10 means the smallest structures use 0.1x spacing, the midpoint uses 1x, and the largest use 10x."
             )
@@ -84,6 +106,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.BooleanValue ENABLE_REPETITION_BIAS = BUILDER
             .comment(
+                    "",
+                    "",
+                    "",
                     "====================",
                     "Repetition Bias",
                     "====================",
@@ -95,6 +120,8 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.IntValue REPETITION_BIAS_RADIUS_CHUNKS = BUILDER
             .comment(
+                    "",
+                    "",
                     "How far Better Sparse Structures looks for recently accepted nearby structures when calculating repetition bias.",
                     "Higher values make the anti-repetition effect more regional.",
                     "In 3D mode this is converted to blocks using 16 blocks per chunk."
@@ -103,6 +130,8 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.DoubleValue STRUCTURE_ID_BIAS_WEIGHT = BUILDER
             .comment(
+                    "",
+                    "",
                     "How strongly nearby accepted structures with the exact same structure id add repetition bias.",
                     "Higher values make repeated exact structures much more likely to be rejected."
             )
@@ -110,6 +139,8 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.DoubleValue SIZE_CLASS_BIAS_WEIGHT = BUILDER
             .comment(
+                    "",
+                    "",
                     "How strongly nearby accepted structures in the same size class add repetition bias.",
                     "This is usually weaker than structureIdBiasWeight so exact repeats matter more than just being similarly sized."
             )
@@ -117,6 +148,8 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.DoubleValue REPETITION_BIAS_THRESHOLD = BUILDER
             .comment(
+                    "",
+                    "",
                     "If a candidate's local repetition bias reaches this value, the structure is rejected.",
                     "Lower values are stricter. Higher values allow more repeats before rejection."
             )
@@ -124,6 +157,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.BooleanValue ENABLE_FIRST_OCCURRENCE_PROTECTION = BUILDER
             .comment(
+                    "",
+                    "",
+                    "",
                     "====================",
                     "First Occurrence Protection",
                     "====================",
@@ -135,6 +171,8 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.DoubleValue FIRST_OCCURRENCE_STARTING_PREFERENCE_MULTIPLIER = BUILDER
             .comment(
+                    "",
+                    "",
                     "How strongly unseen structures are helped on their very first attempts.",
                     "This multiplier is applied to spacing and repetition pressure.",
                     "Lower values make unseen structures easier to accept immediately."
@@ -143,6 +181,8 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.DoubleValue FIRST_OCCURRENCE_MINIMUM_PREFERENCE_MULTIPLIER = BUILDER
             .comment(
+                    "",
+                    "",
                     "How strong first-occurrence protection becomes right before forcing acceptance.",
                     "Lower values give never-before-seen structures much lighter spacing and repetition penalties."
             )
@@ -150,6 +190,8 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.IntValue FIRST_OCCURRENCE_FORCE_AFTER_FAILURES = BUILDER
             .comment(
+                    "",
+                    "",
                     "How many failed attempts a never-before-seen structure can have before Better Sparse Structures force-accepts it.",
                     "Overlap is still never allowed, even when forced."
             )
@@ -157,6 +199,9 @@ public final class ServerConfig {
 
     private static final ModConfigSpec.BooleanValue USE_3D_BLOCK_SPACING = BUILDER
             .comment(
+                    "",
+                    "",
+                    "",
                     "====================",
                     "Placement Rules",
                     "====================",
@@ -165,11 +210,18 @@ public final class ServerConfig {
             .define("use3dBlockSpacing", false);
 
     private static final ModConfigSpec.BooleanValue ALLOW_STRUCTURE_OVERLAP = BUILDER
-            .comment("If false, a new structure is rejected whenever its realized 3D bounding box overlaps any already-allowed structure, regardless of whitelisting.")
+            .comment(
+                    "",
+                    "",
+                    "If false, a new structure is rejected whenever its realized 3D bounding box overlaps any already-allowed structure, regardless of whitelisting."
+            )
             .define("allowStructureOverlap", false);
 
     private static final ModConfigSpec.BooleanValue SEND_DEBUG_STRUCTURE_MARKERS = BUILDER
             .comment(
+                    "",
+                    "",
+                    "",
                     "====================",
                     "Debugging",
                     "====================",
@@ -178,11 +230,17 @@ public final class ServerConfig {
             .define("sendDebugStructureMarkers", false);
 
     private static final ModConfigSpec.BooleanValue LOG_STRUCTURE_ATTEMPTS = BUILDER
-            .comment("Logs accepted, rejected, and whitelisted structure attempts at INFO level.")
+            .comment(
+                    "",
+                    "",
+                    "Logs accepted, rejected, and whitelisted structure attempts at INFO level."
+            )
             .define("logStructureAttempts", true);
 
     private static final ModConfigSpec.IntValue STRUCTURE_ATTEMPT_SUMMARY_INTERVAL = BUILDER
             .comment(
+                    "",
+                    "",
                     "If greater than 0, individual structure attempt logs are replaced with one summary log every N attempts.",
                     "Example: 100 means Better Sparse Structures logs one running total summary after every 100 attempts.",
                     "Set to 0 to keep individual structure attempt logs."
