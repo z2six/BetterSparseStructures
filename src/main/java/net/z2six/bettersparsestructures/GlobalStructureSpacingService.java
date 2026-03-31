@@ -4,6 +4,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.WorldGenRegion;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.StructureManager;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.z2six.bettersparsestructures.mixin.StructureManagerAccessor;
 import net.z2six.bettersparsestructures.mixin.WorldGenRegionAccessor;
@@ -20,27 +21,39 @@ public final class GlobalStructureSpacingService {
         }
 
         StructureRuleSet rules = ServerConfig.structureRules();
+        BoundingBox boundingBox = structureStart.getBoundingBox();
         boolean accepted;
         boolean whitelisted = rules.isWhitelisted(structureId);
 
-        if (whitelisted) {
-            accepted = true;
-            if (ServerConfig.countWhitelistedStructuresForSpacing()) {
-                GlobalStructureIndexSavedData.get(serverLevel)
-                        .rememberWhitelistedStructure(structureStart.getChunkPos(), structureId);
-            }
-        } else {
-            accepted = GlobalStructureIndexSavedData.get(serverLevel)
-                    .tryAccept(structureStart.getChunkPos(), structureId, rules);
-        }
+        accepted = GlobalStructureIndexSavedData.get(serverLevel)
+                .tryAllowStructure(structureStart.getChunkPos(), structureId, boundingBox, rules, whitelisted);
 
         if (ServerConfig.logStructureAttempts()) {
+            String decision = accepted ? (whitelisted ? "Whitelisted" : "Accepted") : "Rejected";
+            double sizeScore = GlobalStructureIndexSavedData.hybridSizeScore(boundingBox);
+            double sizeMultiplier = GlobalStructureIndexSavedData.sizeSpacingMultiplier(boundingBox);
+            double baseSpacing = rules.spacingRadiusChunks(structureId);
+            String effectiveSpacing = ServerConfig.use3dBlockSpacing()
+                    ? String.format(java.util.Locale.ROOT, "%.2f blocks", baseSpacing * 16.0D * sizeMultiplier)
+                    : String.format(java.util.Locale.ROOT, "%.2f chunks", baseSpacing * sizeMultiplier);
             Bettersparsestructures.LOGGER.info(
-                    "{} structure attempt {} at chunk [{}, {}] in {}",
-                    whitelisted ? "Whitelisted" : accepted ? "Accepted" : "Rejected",
+                    "{} structure attempt {} at chunk [{}, {}], y=[{}, {}], bbox=[({}, {}, {}) -> ({}, {}, {})], spacingMode={}, sizeScore={}, sizeMultiplier={}, effectiveSpacing={} in {}",
+                    decision,
                     structureId,
                     structureStart.getChunkPos().x,
                     structureStart.getChunkPos().z,
+                    boundingBox.minY(),
+                    boundingBox.maxY(),
+                    boundingBox.minX(),
+                    boundingBox.minY(),
+                    boundingBox.minZ(),
+                    boundingBox.maxX(),
+                    boundingBox.maxY(),
+                    boundingBox.maxZ(),
+                    ServerConfig.use3dBlockSpacing() ? "3d_blocks" : "horizontal_chunks",
+                    String.format(java.util.Locale.ROOT, "%.2f", sizeScore),
+                    String.format(java.util.Locale.ROOT, "%.3f", sizeMultiplier),
+                    effectiveSpacing,
                     serverLevel.dimension().location()
             );
         }
