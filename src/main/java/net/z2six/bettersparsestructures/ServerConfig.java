@@ -23,7 +23,7 @@ public final class ServerConfig {
                     "In horizontal mode this is a chunk radius between structure starts.",
                     "In 3D mode this is converted to blocks using 16 blocks per chunk."
             )
-            .defineInRange("globalSpacingRadiusChunks", 50, 0, MAX_SPACING_RADIUS_CHUNKS);
+            .defineInRange("globalSpacingRadiusChunks", 10, 0, MAX_SPACING_RADIUS_CHUNKS);
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> WHITELISTED_STRUCTURES = BUILDER
             .comment(
@@ -49,7 +49,7 @@ public final class ServerConfig {
                     "",
                     "If true, whitelisted structures are still remembered as nearby blockers for other structures. They are still never blocked themselves."
             )
-            .define("countWhitelistedStructuresForSpacing", true);
+            .define("countWhitelistedStructuresForSpacing", false);
 
     private static final ModConfigSpec.ConfigValue<List<? extends String>> SPACING_RADIUS_OVERRIDES = BUILDER
             .comment(
@@ -77,7 +77,7 @@ public final class ServerConfig {
                     "The size score uses the hybrid formula footprint * sqrt(height).",
                     "Small structures shrink spacing, large structures expand it."
             )
-            .define("enableSizeScaledSpacing", false);
+            .define("enableSizeScaledSpacing", true);
 
     private static final ModConfigSpec.DoubleValue MINIMUM_SIZE = BUILDER
             .comment(
@@ -93,7 +93,7 @@ public final class ServerConfig {
                     "",
                     "The hybrid size score that counts as the largest structure for size-scaled spacing."
             )
-            .defineInRange("maximumSize", 1_000.0D, 0.0D, MAX_SIZE_SCALING_VALUE);
+            .defineInRange("maximumSize", 20_000.0D, 0.0D, MAX_SIZE_SCALING_VALUE);
 
     private static final ModConfigSpec.DoubleValue DISTANCE_MODIFIER = BUILDER
             .comment(
@@ -102,7 +102,7 @@ public final class ServerConfig {
                     "How strongly size scaling changes spacing.",
                     "A value of 10 means the smallest structures use 0.1x spacing, the midpoint uses 1x, and the largest use 10x."
             )
-            .defineInRange("distanceModifier", 10.0D, 1.0D, 1_000.0D);
+            .defineInRange("distanceModifier", 5.0D, 1.0D, 1_000.0D);
 
     private static final ModConfigSpec.BooleanValue ENABLE_REPETITION_BIAS = BUILDER
             .comment(
@@ -116,7 +116,7 @@ public final class ServerConfig {
                     "This helps large modpacks avoid the same small or repeated structures winning every time.",
                     "Whitelisted structures are still never blocked by this bias."
             )
-            .define("enableRepetitionBias", false);
+            .define("enableRepetitionBias", true);
 
     private static final ModConfigSpec.IntValue REPETITION_BIAS_RADIUS_CHUNKS = BUILDER
             .comment(
@@ -126,7 +126,7 @@ public final class ServerConfig {
                     "Higher values make the anti-repetition effect more regional.",
                     "In 3D mode this is converted to blocks using 16 blocks per chunk."
             )
-            .defineInRange("repetitionBiasRadiusChunks", 24, 1, MAX_SPACING_RADIUS_CHUNKS);
+            .defineInRange("repetitionBiasRadiusChunks", 25, 1, MAX_SPACING_RADIUS_CHUNKS);
 
     private static final ModConfigSpec.DoubleValue STRUCTURE_ID_BIAS_WEIGHT = BUILDER
             .comment(
@@ -135,7 +135,7 @@ public final class ServerConfig {
                     "How strongly nearby accepted structures with the exact same structure id add repetition bias.",
                     "Higher values make repeated exact structures much more likely to be rejected."
             )
-            .defineInRange("structureIdBiasWeight", 1.0D, 0.0D, MAX_REPETITION_BIAS_WEIGHT);
+            .defineInRange("structureIdBiasWeight", 1.75D, 0.0D, MAX_REPETITION_BIAS_WEIGHT);
 
     private static final ModConfigSpec.DoubleValue SIZE_CLASS_BIAS_WEIGHT = BUILDER
             .comment(
@@ -144,7 +144,7 @@ public final class ServerConfig {
                     "How strongly nearby accepted structures in the same size class add repetition bias.",
                     "This is usually weaker than structureIdBiasWeight so exact repeats matter more than just being similarly sized."
             )
-            .defineInRange("sizeClassBiasWeight", 0.35D, 0.0D, MAX_REPETITION_BIAS_WEIGHT);
+            .defineInRange("sizeClassBiasWeight", 0.5D, 0.0D, MAX_REPETITION_BIAS_WEIGHT);
 
     private static final ModConfigSpec.DoubleValue REPETITION_BIAS_THRESHOLD = BUILDER
             .comment(
@@ -153,7 +153,7 @@ public final class ServerConfig {
                     "If a candidate's local repetition bias reaches this value, the structure is rejected.",
                     "Lower values are stricter. Higher values allow more repeats before rejection."
             )
-            .defineInRange("repetitionBiasThreshold", 2.5D, 0.0D, MAX_REPETITION_BIAS_THRESHOLD);
+            .defineInRange("repetitionBiasThreshold", 1.5D, 0.0D, MAX_REPETITION_BIAS_THRESHOLD);
 
     private static final ModConfigSpec.BooleanValue ENABLE_FIRST_OCCURRENCE_PROTECTION = BUILDER
             .comment(
@@ -207,7 +207,7 @@ public final class ServerConfig {
                     "====================",
                     "If true, spacing is checked in 3D using full structure bounding boxes. Each spacing chunk is treated as 16 blocks."
             )
-            .define("use3dBlockSpacing", false);
+            .define("use3dBlockSpacing", true);
 
     private static final ModConfigSpec.BooleanValue ALLOW_STRUCTURE_OVERLAP = BUILDER
             .comment(
@@ -227,7 +227,7 @@ public final class ServerConfig {
                     "====================",
                     "Sends server-side structure attempt debug markers to modded clients that support them."
             )
-            .define("sendDebugStructureMarkers", false);
+            .define("sendDebugStructureMarkers", true);
 
     private static final ModConfigSpec.BooleanValue LOG_STRUCTURE_ATTEMPTS = BUILDER
             .comment(
@@ -245,29 +245,29 @@ public final class ServerConfig {
                     "Example: 100 means Better Sparse Structures logs one running total summary after every 100 attempts.",
                     "Set to 0 to keep individual structure attempt logs."
             )
-            .defineInRange("structureAttemptSummaryInterval", 0, 0, MAX_FAILURE_COUNT);
+            .defineInRange("structureAttemptSummaryInterval", 100, 0, MAX_FAILURE_COUNT);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
 
-    private static volatile StructureRuleSet structureRules = StructureRuleSet.empty(50);
-    private static volatile boolean sendDebugStructureMarkers;
+    private static volatile StructureRuleSet structureRules = StructureRuleSet.empty(10);
+    private static volatile boolean sendDebugStructureMarkers = true;
     private static volatile boolean logStructureAttempts = true;
-    private static volatile boolean use3dBlockSpacing;
+    private static volatile boolean use3dBlockSpacing = true;
     private static volatile boolean allowStructureOverlap;
-    private static volatile boolean enableSizeScaledSpacing;
+    private static volatile boolean enableSizeScaledSpacing = true;
     private static volatile double minimumSize = 10.0D;
-    private static volatile double maximumSize = 1_000.0D;
-    private static volatile double distanceModifier = 10.0D;
-    private static volatile boolean enableRepetitionBias;
-    private static volatile int repetitionBiasRadiusChunks = 24;
-    private static volatile double structureIdBiasWeight = 1.0D;
-    private static volatile double sizeClassBiasWeight = 0.35D;
-    private static volatile double repetitionBiasThreshold = 2.5D;
+    private static volatile double maximumSize = 20_000.0D;
+    private static volatile double distanceModifier = 5.0D;
+    private static volatile boolean enableRepetitionBias = true;
+    private static volatile int repetitionBiasRadiusChunks = 25;
+    private static volatile double structureIdBiasWeight = 1.75D;
+    private static volatile double sizeClassBiasWeight = 0.5D;
+    private static volatile double repetitionBiasThreshold = 1.5D;
     private static volatile boolean enableFirstOccurrenceProtection = true;
     private static volatile double firstOccurrenceStartingPreferenceMultiplier = 0.75D;
     private static volatile double firstOccurrenceMinimumPreferenceMultiplier = 0.15D;
     private static volatile int firstOccurrenceForceAfterFailures = 8;
-    private static volatile int structureAttemptSummaryInterval;
+    private static volatile int structureAttemptSummaryInterval = 100;
 
     private ServerConfig() {
     }
