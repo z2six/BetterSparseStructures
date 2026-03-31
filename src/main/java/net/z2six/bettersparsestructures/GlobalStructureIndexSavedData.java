@@ -83,19 +83,35 @@ public final class GlobalStructureIndexSavedData extends SavedData {
             StructureRuleSet rules,
             boolean whitelisted
     ) {
+        return decideStructure(candidateChunk, candidateStructureId, candidateBoundingBox, rules, whitelisted).accepted();
+    }
+
+    public synchronized DecisionResult decideStructure(
+            ChunkPos candidateChunk,
+            String candidateStructureId,
+            BoundingBox candidateBoundingBox,
+            StructureRuleSet rules,
+            boolean whitelisted
+    ) {
         StoredStructure candidate = new StoredStructure(candidateStructureId, StoredBoundingBox.from(candidateBoundingBox));
 
         if (!ServerConfig.allowStructureOverlap() && overlapsExistingStructure(candidateChunk, candidate)) {
-            return false;
+            return DecisionResult.rejected(RejectionReason.OVERLAP, RepetitionBiasResult.none());
         }
 
+        RepetitionBiasResult repetitionBias = RepetitionBiasResult.none();
         if (!whitelisted) {
             if (ServerConfig.use3dBlockSpacing()) {
                 if (violates3dSpacing(candidateChunk, candidate, rules)) {
-                    return false;
+                    return DecisionResult.rejected(RejectionReason.SPACING, RepetitionBiasResult.none());
                 }
             } else if (violates2dSpacing(candidateChunk, candidate, rules)) {
-                return false;
+                return DecisionResult.rejected(RejectionReason.SPACING, RepetitionBiasResult.none());
+            }
+
+            repetitionBias = repetitionBias(candidateChunk, candidate, rules);
+            if (repetitionBias.rejected()) {
+                return DecisionResult.rejected(RejectionReason.REPETITION, repetitionBias);
             }
         }
 
@@ -108,7 +124,7 @@ public final class GlobalStructureIndexSavedData extends SavedData {
             }
         }
 
-        return true;
+        return DecisionResult.accepted(repetitionBias);
     }
 
     public static double hybridSizeScore(BoundingBox boundingBox) {
@@ -117,6 +133,10 @@ public final class GlobalStructureIndexSavedData extends SavedData {
 
     public static double sizeSpacingMultiplier(BoundingBox boundingBox) {
         return spacingMultiplier(new StoredStructure("candidate", StoredBoundingBox.from(boundingBox)));
+    }
+
+    public static String sizeClassName(BoundingBox boundingBox) {
+        return sizeClass(new StoredStructure("candidate", StoredBoundingBox.from(boundingBox))).serializedName();
     }
 
     private boolean violates2dSpacing(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules) {
@@ -229,6 +249,132 @@ public final class GlobalStructureIndexSavedData extends SavedData {
 
         double modifier = ServerConfig.distanceModifier();
         return Math.pow(modifier, normalized * 2.0D - 1.0D);
+    }
+
+    private RepetitionBiasResult repetitionBias(ChunkPos candidateChunk, StoredStructure candidate, StructureRuleSet rules) {
+        if (!ServerConfig.enableRepetitionBias()) {
+            return RepetitionBiasResult.none();
+        }
+
+        int radiusChunks = ServerConfig.repetitionBiasRadiusChunks();
+        if (radiusChunks <= 0) {
+            return RepetitionBiasResult.none();
+        }
+
+        SizeClass candidateSizeClass = sizeClass(candidate);
+        double structureIdPressure = 0.0D;
+        double sizeClassPressure = 0.0D;
+
+        if (ServerConfig.use3dBlockSpacing()) {
+            int radiusBlocks = radiusChunks * 16;
+            StoredBoundingBox candidateBox = candidate.boundingBox();
+            LongOpenHashSet candidateKeys = collectCandidateKeys(
+                    candidateBox.minX() - radiusBlocks,
+                    candidateBox.minZ() - radiusBlocks,
+                    candidateBox.maxX() + radiusBlocks,
+                    candidateBox.maxZ() + radiusBlocks
+            );
+
+            for (long existingChunkKey : candidateKeys) {
+                StoredStructure existing = this.rememberedStructures.get(existingChunkKey);
+                if (existing == null || isIgnoredForSpacing(existing.structureId(), rules)) {
+                    continue;
+                }
+
+                double closeness = 0.0D;
+                if (existing.boundingBox() != null) {
+                    closeness = closeness(candidateBox.squaredDistanceTo(existing.boundingBox()), radiusBlocks);
+                } else {
+                    closeness = closeness(squaredHorizontalBlockDistance(candidateChunk, existingChunkKey), radiusBlocks);
+                }
+
+                if (closeness <= 0.0D) {
+                    continue;
+                }
+
+                if (candidate.structureId().equals(existing.structureId())) {
+                    structureIdPressure += closeness * ServerConfig.structureIdBiasWeight();
+                }
+
+                if (candidateSizeClass == sizeClass(existing)) {
+                    sizeClassPressure += closeness * ServerConfig.sizeClassBiasWeight();
+                }
+            }
+        } else {
+            LongOpenHashSet candidateKeys = collectCandidateKeys(
+                    candidateChunk.getMinBlockX() + 8 - radiusChunks * 16,
+                    candidateChunk.getMinBlockZ() + 8 - radiusChunks * 16,
+                    candidateChunk.getMinBlockX() + 8 + radiusChunks * 16,
+                    candidateChunk.getMinBlockZ() + 8 + radiusChunks * 16
+            );
+
+            for (long existingChunkKey : candidateKeys) {
+                StoredStructure existing = this.rememberedStructures.get(existingChunkKey);
+                if (existing == null || isIgnoredForSpacing(existing.structureId(), rules)) {
+                    continue;
+                }
+
+                long deltaX = (long) ChunkPos.getX(existingChunkKey) - candidateChunk.x;
+                long deltaZ = (long) ChunkPos.getZ(existingChunkKey) - candidateChunk.z;
+                double distanceChunks = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+                double closeness = 1.0D - distanceChunks / radiusChunks;
+                if (closeness <= 0.0D) {
+                    continue;
+                }
+
+                if (candidate.structureId().equals(existing.structureId())) {
+                    structureIdPressure += closeness * ServerConfig.structureIdBiasWeight();
+                }
+
+                if (candidateSizeClass == sizeClass(existing)) {
+                    sizeClassPressure += closeness * ServerConfig.sizeClassBiasWeight();
+                }
+            }
+        }
+
+        double totalPressure = structureIdPressure + sizeClassPressure;
+        return new RepetitionBiasResult(
+                structureIdPressure,
+                sizeClassPressure,
+                totalPressure,
+                ServerConfig.repetitionBiasThreshold(),
+                candidateSizeClass,
+                totalPressure >= ServerConfig.repetitionBiasThreshold()
+        );
+    }
+
+    private static double closeness(long squaredDistance, int radiusBlocks) {
+        double distance = Math.sqrt(squaredDistance);
+        return 1.0D - distance / radiusBlocks;
+    }
+
+    private static SizeClass sizeClass(StoredStructure structure) {
+        if (structure == null || structure.boundingBox() == null) {
+            return SizeClass.UNKNOWN;
+        }
+
+        double minimumSize = ServerConfig.minimumSize();
+        double maximumSize = ServerConfig.maximumSize();
+        if (maximumSize <= minimumSize) {
+            return SizeClass.MEDIUM;
+        }
+
+        double normalized = (structure.boundingBox().hybridSizeScore() - minimumSize) / (maximumSize - minimumSize);
+        normalized = Math.max(0.0D, Math.min(1.0D, normalized));
+
+        if (normalized <= 0.20D) {
+            return SizeClass.TINY;
+        }
+        if (normalized <= 0.40D) {
+            return SizeClass.SMALL;
+        }
+        if (normalized <= 0.60D) {
+            return SizeClass.MEDIUM;
+        }
+        if (normalized <= 0.80D) {
+            return SizeClass.LARGE;
+        }
+        return SizeClass.HUGE;
     }
 
     private boolean overlapsExistingStructure(ChunkPos candidateChunk, StoredStructure candidate) {
@@ -370,6 +516,55 @@ public final class GlobalStructureIndexSavedData extends SavedData {
     }
 
     private record StoredStructure(String structureId, StoredBoundingBox boundingBox) {
+    }
+
+    public record DecisionResult(boolean accepted, RejectionReason rejectionReason, RepetitionBiasResult repetitionBias) {
+        public static DecisionResult accepted(RepetitionBiasResult repetitionBias) {
+            return new DecisionResult(true, RejectionReason.NONE, repetitionBias);
+        }
+
+        public static DecisionResult rejected(RejectionReason rejectionReason, RepetitionBiasResult repetitionBias) {
+            return new DecisionResult(false, rejectionReason, repetitionBias);
+        }
+    }
+
+    public enum RejectionReason {
+        NONE,
+        OVERLAP,
+        SPACING,
+        REPETITION
+    }
+
+    public record RepetitionBiasResult(
+            double structureIdPressure,
+            double sizeClassPressure,
+            double totalPressure,
+            double threshold,
+            SizeClass candidateSizeClass,
+            boolean rejected
+    ) {
+        public static RepetitionBiasResult none() {
+            return new RepetitionBiasResult(0.0D, 0.0D, 0.0D, ServerConfig.repetitionBiasThreshold(), SizeClass.UNKNOWN, false);
+        }
+    }
+
+    public enum SizeClass {
+        UNKNOWN("unknown"),
+        TINY("tiny"),
+        SMALL("small"),
+        MEDIUM("medium"),
+        LARGE("large"),
+        HUGE("huge");
+
+        private final String serializedName;
+
+        SizeClass(String serializedName) {
+            this.serializedName = serializedName;
+        }
+
+        public String serializedName() {
+            return serializedName;
+        }
     }
 
     private record StoredBoundingBox(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {

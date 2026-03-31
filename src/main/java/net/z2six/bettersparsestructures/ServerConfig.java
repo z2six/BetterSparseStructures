@@ -8,6 +8,8 @@ import java.util.List;
 public final class ServerConfig {
     public static final int MAX_SPACING_RADIUS_CHUNKS = 10_000;
     public static final double MAX_SIZE_SCALING_VALUE = 1_000_000_000_000D;
+    public static final double MAX_REPETITION_BIAS_WEIGHT = 100.0D;
+    public static final double MAX_REPETITION_BIAS_THRESHOLD = 1_000.0D;
 
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
@@ -70,6 +72,43 @@ public final class ServerConfig {
             )
             .defineInRange("distanceModifier", 10.0D, 1.0D, 1_000.0D);
 
+    private static final ModConfigSpec.BooleanValue ENABLE_REPETITION_BIAS = BUILDER
+            .comment(
+                    "If true, repeated nearby structure ids and size classes build up pressure against generating the same kinds of structures again.",
+                    "This helps large modpacks avoid the same small or repeated structures winning every time.",
+                    "Whitelisted structures are still never blocked by this bias."
+            )
+            .define("enableRepetitionBias", false);
+
+    private static final ModConfigSpec.IntValue REPETITION_BIAS_RADIUS_CHUNKS = BUILDER
+            .comment(
+                    "How far Better Sparse Structures looks for recently accepted nearby structures when calculating repetition bias.",
+                    "Higher values make the anti-repetition effect more regional.",
+                    "In 3D mode this is converted to blocks using 16 blocks per chunk."
+            )
+            .defineInRange("repetitionBiasRadiusChunks", 24, 1, MAX_SPACING_RADIUS_CHUNKS);
+
+    private static final ModConfigSpec.DoubleValue STRUCTURE_ID_BIAS_WEIGHT = BUILDER
+            .comment(
+                    "How strongly nearby accepted structures with the exact same structure id add repetition bias.",
+                    "Higher values make repeated exact structures much more likely to be rejected."
+            )
+            .defineInRange("structureIdBiasWeight", 1.0D, 0.0D, MAX_REPETITION_BIAS_WEIGHT);
+
+    private static final ModConfigSpec.DoubleValue SIZE_CLASS_BIAS_WEIGHT = BUILDER
+            .comment(
+                    "How strongly nearby accepted structures in the same size class add repetition bias.",
+                    "This is usually weaker than structureIdBiasWeight so exact repeats matter more than just being similarly sized."
+            )
+            .defineInRange("sizeClassBiasWeight", 0.35D, 0.0D, MAX_REPETITION_BIAS_WEIGHT);
+
+    private static final ModConfigSpec.DoubleValue REPETITION_BIAS_THRESHOLD = BUILDER
+            .comment(
+                    "If a candidate's local repetition bias reaches this value, the structure is rejected.",
+                    "Lower values are stricter. Higher values allow more repeats before rejection."
+            )
+            .defineInRange("repetitionBiasThreshold", 2.5D, 0.0D, MAX_REPETITION_BIAS_THRESHOLD);
+
     private static final ModConfigSpec.BooleanValue USE_3D_BLOCK_SPACING = BUILDER
             .comment("If true, spacing is checked in 3D using full structure bounding boxes. Each spacing chunk is treated as 16 blocks.")
             .define("use3dBlockSpacing", false);
@@ -97,6 +136,11 @@ public final class ServerConfig {
     private static volatile double minimumSize = 10.0D;
     private static volatile double maximumSize = 1_000.0D;
     private static volatile double distanceModifier = 10.0D;
+    private static volatile boolean enableRepetitionBias;
+    private static volatile int repetitionBiasRadiusChunks = 24;
+    private static volatile double structureIdBiasWeight = 1.0D;
+    private static volatile double sizeClassBiasWeight = 0.35D;
+    private static volatile double repetitionBiasThreshold = 2.5D;
 
     private ServerConfig() {
     }
@@ -141,6 +185,26 @@ public final class ServerConfig {
         return distanceModifier;
     }
 
+    public static boolean enableRepetitionBias() {
+        return enableRepetitionBias;
+    }
+
+    public static int repetitionBiasRadiusChunks() {
+        return repetitionBiasRadiusChunks;
+    }
+
+    public static double structureIdBiasWeight() {
+        return structureIdBiasWeight;
+    }
+
+    public static double sizeClassBiasWeight() {
+        return sizeClassBiasWeight;
+    }
+
+    public static double repetitionBiasThreshold() {
+        return repetitionBiasThreshold;
+    }
+
     public static void onConfigLoading(ModConfigEvent.Loading event) {
         apply(event);
     }
@@ -166,11 +230,16 @@ public final class ServerConfig {
         minimumSize = MINIMUM_SIZE.get();
         maximumSize = Math.max(minimumSize, MAXIMUM_SIZE.get());
         distanceModifier = DISTANCE_MODIFIER.get();
+        enableRepetitionBias = ENABLE_REPETITION_BIAS.get();
+        repetitionBiasRadiusChunks = REPETITION_BIAS_RADIUS_CHUNKS.get();
+        structureIdBiasWeight = STRUCTURE_ID_BIAS_WEIGHT.get();
+        sizeClassBiasWeight = SIZE_CLASS_BIAS_WEIGHT.get();
+        repetitionBiasThreshold = REPETITION_BIAS_THRESHOLD.get();
         use3dBlockSpacing = USE_3D_BLOCK_SPACING.get();
         allowStructureOverlap = ALLOW_STRUCTURE_OVERLAP.get();
 
         Bettersparsestructures.LOGGER.info(
-                "Loaded Better Sparse Structures server config: globalSpacingRadiusChunks={}, whitelistedStructures={}, countWhitelistedStructuresForSpacing={}, spacingRadiusOverrides={}, enableSizeScaledSpacing={}, minimumSize={}, maximumSize={}, distanceModifier={}, use3dBlockSpacing={}, allowStructureOverlap={}, sendDebugStructureMarkers={}, logStructureAttempts={}",
+                "Loaded Better Sparse Structures server config: globalSpacingRadiusChunks={}, whitelistedStructures={}, countWhitelistedStructuresForSpacing={}, spacingRadiusOverrides={}, enableSizeScaledSpacing={}, minimumSize={}, maximumSize={}, distanceModifier={}, enableRepetitionBias={}, repetitionBiasRadiusChunks={}, structureIdBiasWeight={}, sizeClassBiasWeight={}, repetitionBiasThreshold={}, use3dBlockSpacing={}, allowStructureOverlap={}, sendDebugStructureMarkers={}, logStructureAttempts={}",
                 structureRules.globalSpacingRadiusChunks(),
                 structureRules.whitelistCount(),
                 countWhitelistedStructuresForSpacing(),
@@ -179,6 +248,11 @@ public final class ServerConfig {
                 minimumSize,
                 maximumSize,
                 distanceModifier,
+                enableRepetitionBias,
+                repetitionBiasRadiusChunks,
+                structureIdBiasWeight,
+                sizeClassBiasWeight,
+                repetitionBiasThreshold,
                 use3dBlockSpacing,
                 allowStructureOverlap,
                 sendDebugStructureMarkers,

@@ -22,24 +22,39 @@ public final class GlobalStructureSpacingService {
 
         StructureRuleSet rules = ServerConfig.structureRules();
         BoundingBox boundingBox = structureStart.getBoundingBox();
-        boolean accepted;
         boolean whitelisted = rules.isWhitelisted(structureId);
-
-        accepted = GlobalStructureIndexSavedData.get(serverLevel)
-                .tryAllowStructure(structureStart.getChunkPos(), structureId, boundingBox, rules, whitelisted);
+        GlobalStructureIndexSavedData.DecisionResult decision = GlobalStructureIndexSavedData.get(serverLevel)
+                .decideStructure(structureStart.getChunkPos(), structureId, boundingBox, rules, whitelisted);
+        boolean accepted = decision.accepted();
 
         if (ServerConfig.logStructureAttempts()) {
-            String decision = accepted ? (whitelisted ? "Whitelisted" : "Accepted") : "Rejected";
+            String decisionText = accepted ? (whitelisted ? "Whitelisted" : "Accepted") : "Rejected";
             double sizeScore = GlobalStructureIndexSavedData.hybridSizeScore(boundingBox);
             double sizeMultiplier = GlobalStructureIndexSavedData.sizeSpacingMultiplier(boundingBox);
             double baseSpacing = rules.spacingRadiusChunks(structureId);
             String effectiveSpacing = ServerConfig.use3dBlockSpacing()
                     ? String.format(java.util.Locale.ROOT, "%.2f blocks", baseSpacing * 16.0D * sizeMultiplier)
                     : String.format(java.util.Locale.ROOT, "%.2f chunks", baseSpacing * sizeMultiplier);
+            String rejectionReason = decision.rejectionReason().name().toLowerCase(java.util.Locale.ROOT);
+            GlobalStructureIndexSavedData.RepetitionBiasResult repetitionBias = decision.repetitionBias();
             Bettersparsestructures.LOGGER.info(
-                    "{} structure attempt {} at chunk [{}, {}], y=[{}, {}], bbox=[({}, {}, {}) -> ({}, {}, {})], spacingMode={}, sizeScore={}, sizeMultiplier={}, effectiveSpacing={} in {}",
-                    decision,
+                    """
+                    {} structure attempt {}
+                      dimension={}
+                      chunk=[{}, {}]
+                      y=[{}, {}]
+                      bbox=[({}, {}, {}) -> ({}, {}, {})]
+                      spacingMode={}
+                      sizeScore={}
+                      sizeClass={}
+                      sizeMultiplier={}
+                      effectiveSpacing={}
+                      rejectionReason={}
+                      repetitionBias[id={}, sizeClass={}, total={}, threshold={}]
+                    """,
+                    decisionText,
                     structureId,
+                    serverLevel.dimension().location(),
                     structureStart.getChunkPos().x,
                     structureStart.getChunkPos().z,
                     boundingBox.minY(),
@@ -52,9 +67,14 @@ public final class GlobalStructureSpacingService {
                     boundingBox.maxZ(),
                     ServerConfig.use3dBlockSpacing() ? "3d_blocks" : "horizontal_chunks",
                     String.format(java.util.Locale.ROOT, "%.2f", sizeScore),
+                    GlobalStructureIndexSavedData.sizeClassName(boundingBox),
                     String.format(java.util.Locale.ROOT, "%.3f", sizeMultiplier),
                     effectiveSpacing,
-                    serverLevel.dimension().location()
+                    rejectionReason,
+                    String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.structureIdPressure()),
+                    String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.sizeClassPressure()),
+                    String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.totalPressure()),
+                    String.format(java.util.Locale.ROOT, "%.3f", repetitionBias.threshold())
             );
         }
 
